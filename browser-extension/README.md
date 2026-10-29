@@ -61,7 +61,7 @@ If the panel shows a message, follow what it says. To stop, click **Pause**. To 
 ## 6. Check the result
 
 1. Open your **Downloads** folder, then `LEO_export` (or the name you chose).
-2. Each project has its own folder, with a zip for each form and an **Approval letters** folder.
+2. Each project has its own folder. Inside it, the ethics application is in folder `01`, and each amendment, annual report or other form has its own numbered folder after it, holding a zip of that form's documents. The approval letters from all the forms are together in one **Approval letters** folder.
 3. Open `export_log.csv` and look for rows marked `ERROR`, `NEEDS_REVIEW` or `MISPLACED`.
 
 The export contains research documents and committee correspondence. Copy it to its permanent home and check it before deleting anything.

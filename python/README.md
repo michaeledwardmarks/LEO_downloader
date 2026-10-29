@@ -75,7 +75,7 @@ LEO_export/
 ```
 
 - One folder per project, named `Project ID - Title`.
-- One numbered folder per form, in project-tree order. Folder `01` is the main ethics application. Amendments and other forms follow.
+- Each form has its own numbered subfolder inside the project folder, in the order the forms appear in LEO's project tree. Folder `01` is the main ethics application. The amendments, annual reports and any other forms follow, each in its own folder at the same level. They are not placed inside the `01` folder.
 - Forms that share a name, such as several annual reports, are numbered `1`, `2`, `3` in tree order.
 - Each form folder holds one zip of everything on that form's Documents tab.
 - **Approval letters** collates the letters from every form. Names start with the date and time, so they sort in the order issued, followed by the form name and the original file name.

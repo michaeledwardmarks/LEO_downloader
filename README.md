@@ -2,7 +2,7 @@
 
 LSHTM Ethics Online (LEO) is being replaced. These tools save the records from every project you can see in LEO, so you keep a copy:
 
-- the documents for each form, as a zip;
+- the documents for each form (the ethics application, each amendment, each report), as a zip in its own folder;
 - the committee approval letters, collected in one folder per project.
 
 You log in to LEO yourself, as normal. The tools never see or store your password.
