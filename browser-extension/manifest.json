@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "LEO Project Exporter",
+  "version": "1.3.0",
+  "description": "Saves every project, form and committee letter from LSHTM Ethics Online into folders in your Downloads folder.",
+  "permissions": [
+    "downloads",
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://leo.lshtm.ac.uk/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://leo.lshtm.ac.uk/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Export LEO projects",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  }
+}
