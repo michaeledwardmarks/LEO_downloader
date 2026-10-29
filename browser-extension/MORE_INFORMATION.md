@@ -63,8 +63,9 @@ Searching the code for `fetch`, `XMLHttpRequest`, `WebSocket` and `sendBeacon` f
 
 ## What is saved
 
-- **Saved:** the Documents tab of each form, as one zip, and the attachment on each History row that records an approval. That means a favourable opinion, an amendment approved by the RGIO, or a response to a provisional letter that has been approved.
-- **Not saved:** the Submissions, Signatures, Correspondence and Collaborators tabs, other History attachments, unfavourable opinions, and provisional approvals.
+- **Saved:** the Documents tab of each form, as one zip, and the attachment on each History row that records an approval. That means a favourable opinion, an amendment approved by the RGIO, a response to a provisional letter that has been approved, a "Study Closed" notice (the approval of an End of Study form), or one of the committee's provisional letters ("further clarification has been requested", "provisionally approved"). For Annual Report and Protocol Deviation forms, which record their outcome as a status change, the letter on the "status changed to Favourable" row and on an RGIO acceptance is saved too.
+- **Forms with no documents listed:** for a form whose Documents tab lists nothing (LEO says "There are currently no documents listed", as it does for closed End of Study forms), the form's own copy from the History tab is saved instead, in that form's folder: its "Form submitted" attachment (the submitted form; if the form was submitted more than once, only the latest). There is no zip for such a form. Its approval letter goes in the **Approval letters** folder as usual.
+- **Not saved:** the Submissions, Signatures, Correspondence and Collaborators tabs, other History attachments, unfavourable opinions, "not valid" and "invalidated" notices, and the status-change rows between review stages.
 
 ## Folder layout
 
@@ -100,7 +101,7 @@ Open it in Excel or Numbers and look at the `status` column.
 | `INFO` | A note only, such as "3 other attachments not downloaded". |
 | `CHECK` | A letter has the same name and size as another letter of the same form, so it may be a duplicate. Nothing is deleted automatically. |
 | `WARNING` | The Documents table showed a different number of files from what was expected. Check that form. |
-| `EMPTY` | The tab had no table. Worth opening that form in LEO. |
+| `EMPTY` | The tab had no table. The detail shows what the tab said instead. A message such as "No documents…" means the form really has none. "Tab stayed blank" means it did not load: that form is marked `NEEDS_REVIEW` and retried when you run the export again. |
 | `ERROR`, `NEEDS_REVIEW`, `MISPLACED` | Something failed. That form is retried when you run the export again. |
 
 The `documents` rows also say how LEO served each file, for example `served as GET /...`. Include a few of these rows when asking for help.
@@ -156,4 +157,5 @@ Some LSHTM computers do not allow Developer mode or changes to download settings
 
 - It has been tested against a mock of LEO and has not been confirmed on every LEO page layout.
 - It cannot open the downloaded files, so it cannot check zip contents or remove duplicate letters by content. The Python version can.
+- It has no top-up mode. To add letters or zips to an earlier export, run the same projects again: files are saved under the same names, so they are overwritten in place. The Python version can top up letters only (`--letters-only`) or re-check forms that have no zip (`--retry-empty`).
 - Only the Documents and History tabs are exported.

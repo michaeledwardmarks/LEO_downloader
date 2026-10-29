@@ -32,7 +32,7 @@ You will put these back in step 7.
 
 ## 3. Install
 
-1. Unzip `leo-export-extension.zip`. On Windows, right-click it and choose **Extract All**.
+1. If you already have an older version installed, open `chrome://extensions` (Edge: `edge://extensions`) and click **Remove** on **LEO Project Exporter** first. Then unzip `leo-export-extension.zip`. On Windows, right-click it and choose **Extract All**.
 2. Move the unzipped folder somewhere permanent, such as Documents. Do not delete it while you use the extension.
 3. Open `chrome://extensions` (Edge: `edge://extensions`).
 4. Switch on **Developer mode** (Chrome: top right. Edge: left menu).

@@ -49,14 +49,28 @@ DEFAULT_BASE = "https://leo.lshtm.ac.uk"
 LETTERS_DIR = "Approval letters"                # all approval letters of a project, collated
 OTHER_DIR = "Other History attachments"         # restructure only: non-approval and duplicate letters
 ALL_DOCS = "all documents"
+# When a form's Documents tab lists nothing (LEO says "There are currently no documents listed", as it does for
+# closed End of Study forms), the form's own content is only reachable from its History rows. The "Form submitted"
+# attachment is then saved into the form's folder as well: (label used in the file name, pattern for the description).
+FORM_COPY_ROWS = (("submitted form", re.compile(r"^\s*Form submitted\b", re.I)),)
 # History rows are downloaded only when their description matches this (case-insensitive).
 # Three wordings record a final approval in LEO's notifications:
 #   "... has received a favourable opinion"                       ("(?<!un)" excludes "unfavourable")
 #   "Your amendment has been assessed and approved by the RGIO"   (amendment approvals)
 #   "Your response to the provisional letter has been approved"   (approval after a provisional opinion)
+#   "Form status changed from ... to Study Closed"                (the approval of an End of Study form)
+#   "... provisionally approved"                                   (provisional approval letters)
+#   "... further clarification has been requested"                 (the committee's provisional opinion letter)
 DEFAULT_HISTORY_PATTERN = (r"(?<!un)favourable opinion"
                            r"|approved by the RGIO"
-                           r"|response to the provisional letter has been approved")
+                           r"|response to the provisional letter has been approved"
+                           r"|\bto Study Closed\b"
+                           r"|provisionally approved"
+                           r"|further clarification has been requested")
+# Annual Report and Protocol Deviation forms record their outcome as a status change to "Favourable" (or an RGIO
+# acceptance) with the letter attached, rather than a "favourable opinion" notification.
+STATUS_OUTCOME_FORMS = re.compile(r"^\s*(Annual Report|Protocol Deviation)", re.I)
+STATUS_OUTCOME_ROWS = re.compile(r"\bto Favourable\.?\s*$|reviewed and accepted by the RGIO", re.I)
 
 # ---------------------------------------------------------------- file names
 
@@ -133,12 +147,17 @@ class RunLog:
     def __init__(self, out):
         self.path = out / "export_log.csv"
         self.state = {}
+        self.docs = {}          # form id -> status of its last Documents result (ok, empty, error, ...)
+        self.docs_project = {}  # form id -> project id
         from_log = {}
         if self.path.exists():
             with open(self.path, newline="", encoding="utf-8-sig") as f:
                 for r in csv.DictReader(f):
                     if r.get("item") == "form" and r.get("form_id"):
                         from_log[r["form_id"]] = r["status"]  # later rows win
+                    elif r.get("item") == "documents" and r.get("form_id"):
+                        self.docs[r["form_id"]] = r["status"]
+                        self.docs_project[r["form_id"]] = r["project_id"]
         else:
             with open(self.path, "w", newline="", encoding="utf-8-sig") as f:
                 csv.writer(f).writerow(self.FIELDS)
@@ -166,8 +185,15 @@ class RunLog:
                 datetime.now().isoformat(timespec="seconds"), project["id"], project["title"],
                 form["id"] if form else "", form["name"] if form else "", item, file, status, detail,
             ])
+        if item == "documents" and form:
+            self.docs[form["id"]] = status
+            self.docs_project[form["id"]] = project["id"]
         if status not in ("ok", "info", "scan", "scansummary", "complete"):
             print(f"    [{status}] {item}: {detail}")
+
+    def empty_project_ids(self):
+        """Projects holding at least one form whose last Documents result was 'empty'."""
+        return {self.docs_project[f] for f, st in self.docs.items() if st == "empty" and f in self.docs_project}
 
     def set_state(self, project, form, status):
         self.state[form["id"]] = status
@@ -341,14 +367,39 @@ def capture_download(page, trigger, timeout_s):
     raise PWTimeout(f"no download started within {timeout_s}s")
 
 
+NO_ITEMS_RE = re.compile(r"\b(no|not)\b.*\b(documents?|data|records?|attachments?|entries)\b", re.I)
+
+
+def open_tab(page, tab_selector, container_selector, waits=(8000, 12000, 20000)):
+    """Click a tab and wait for its table. If nothing loads (for example the click arrived before
+    LEO's own script was ready), click again. Returns (container, loaded, text shown instead)."""
+    cont = page.locator(container_selector)
+    for wait in waits:
+        page.click(tab_selector)
+        try:
+            cont.locator("table").first.wait_for(state="visible", timeout=wait)
+            return cont, True, ""
+        except PWTimeout:
+            try:
+                text = " ".join(cont.inner_text().split())[:120]
+            except Exception:
+                text = ""
+            if NO_ITEMS_RE.search(text):  # the tab says there is nothing: no need to click again
+                return cont, False, text
+    try:
+        text = " ".join(cont.inner_text().split())[:120]
+    except Exception:
+        text = ""
+    return cont, False, text
+
+
 def download_documents(page, args, dest_for):
     """Documents tab: tick everything, click Download Selected, save the result."""
-    page.click("#documents_tab")
-    cont = page.locator("#form-documents-container")
-    try:
-        cont.locator("table").first.wait_for(state="visible", timeout=30000)
-    except PWTimeout:
-        return "empty", "no documents table appeared", None
+    cont, loaded, text = open_tab(page, "#documents_tab", "#form-documents-container")
+    if not loaded:
+        detail = "no documents table appeared" + (f' (tab shows: "{text}")' if text else " (tab stayed blank)")
+        # a tab that says there are no documents is genuinely empty; a blank tab is retried on the next run
+        return ("empty" if NO_ITEMS_RE.search(text) else "error"), detail, None
     page.wait_for_timeout(500)
     show_all_entries(cont)
     if cont.locator("td.dataTables_empty").count():
@@ -397,20 +448,19 @@ def sha256_of(path):
     return h.hexdigest()
 
 
-def history_row_wanted(args, desc):
-    return args.history_all or re.search(args.history_pattern, desc, re.I) is not None
+def history_row_wanted(args, desc, form_name=""):
+    if args.history_all or re.search(args.history_pattern, desc, re.I) is not None:
+        return True
+    return bool(form_name and STATUS_OUTCOME_FORMS.search(form_name) and STATUS_OUTCOME_ROWS.search(desc))
 
 
-def download_history_attachments(page, args, dest_for):
+def download_history_attachments(page, args, dest_for, form_copy=False, form_name=""):
     """History tab: download the attachments on rows whose description matches
     --history-pattern (default: favourable opinion), across all pages. A file whose
     content is identical to one already saved for this form is not kept."""
-    page.click("#history_tab")
-    cont = page.locator("#form-history-container")
-    try:
-        cont.locator("table").first.wait_for(state="visible", timeout=30000)
-    except PWTimeout:
-        return [("empty", "no history table appeared", None)]
+    cont, loaded, text = open_tab(page, "#history_tab", "#form-history-container", waits=(8000, 12000))
+    if not loaded:
+        return [("empty", "no history table appeared" + (f' (tab shows: "{text}")' if text else " (tab stayed blank)"), None)]
     page.wait_for_timeout(500)
     show_all_entries(cont)
 
@@ -421,6 +471,7 @@ def download_history_attachments(page, args, dest_for):
 
     date_col, desc_col = col("date", 0), col("description", 2)
     results, seen_hashes, skipped = [], {}, 0
+    copy_saved = {}  # fallback label -> (date tag, file): only the latest submitted copy of a form is kept
     n_attach = n_wanted = 0
     for _page_no in range(500):
         rows = cont.locator("tbody tr")
@@ -440,7 +491,11 @@ def download_history_attachments(page, args, dest_for):
                 continue
             when = " ".join(cells.nth(date_col).inner_text().split())
             desc = " ".join(cells.nth(desc_col).inner_text().split())
-            wanted = history_row_wanted(args, desc)
+            wanted = history_row_wanted(args, desc, form_name)
+            copy_label = None
+            if form_copy and not wanted:  # Documents tab was empty: also take the form's own copy
+                copy_label = next((lab for lab, rx in FORM_COPY_ROWS if rx.search(desc)), None)
+                wanted = copy_label is not None
             n_attach += 1
             n_wanted += wanted
 
@@ -450,10 +505,18 @@ def download_history_attachments(page, args, dest_for):
             if not wanted:
                 skipped += 1
                 continue
+            if copy_label:
+                prev = copy_saved.get(copy_label)
+                if prev and date_tag(when) <= prev[0]:  # an older version of a form that was resubmitted
+                    skipped += 1
+                    continue
             try:
                 d = capture_download(page, lambda: btn.click(), args.download_timeout)
                 label = f"letter {date_tag(when)} - {d.suggested_filename}"
-                dest = unique_path(dest_for("letter", d.suggested_filename, label, stamp=date_tag(when)))
+                if copy_label:
+                    dest = unique_path(dest_for("copy", d.suggested_filename, copy_label, stamp=date_tag(when)))
+                else:
+                    dest = unique_path(dest_for("letter", d.suggested_filename, label, stamp=date_tag(when)))
                 d.save_as(dest)
                 digest = sha256_of(dest)
                 if digest in seen_hashes:
@@ -461,7 +524,13 @@ def download_history_attachments(page, args, dest_for):
                     results.append(("duplicate", f"{when} | {desc} (same content as {seen_hashes[digest]}; not kept)", None))
                 else:
                     seen_hashes[digest] = dest.name
-                    results.append(("ok", f"{when} | {desc}", dest))
+                    results.append(("ok", f"{when} | {desc}" + (" (form copy: Documents tab lists nothing)" if copy_label else ""), dest))
+                    if copy_label:
+                        old = copy_saved.get(copy_label)
+                        if old and old[1].exists():  # a newer submission was found after an older one was saved
+                            old[1].unlink()
+                            results.append(("info", f"older submitted copy replaced by the newer one ({old[1].name})", None))
+                        copy_saved[copy_label] = (date_tag(when), dest)
             except PWTimeout:
                 results.append(("error", f"no download started for {when} | {desc}", None))
             time.sleep(args.delay)
@@ -503,8 +572,10 @@ def process_form(page, args, log, project, project_dir, index, form):
             if kind == "documents":
                 ext = Path(suggested).suffix or ".zip"
                 return form_dir / sanitise_filename(f"{display} - {ALL_DOCS}{ext}", 130)
-            letters_dir.mkdir(parents=True, exist_ok=True)
             when = (stamp or "undated").replace("_", " ")
+            if kind == "copy":  # form content taken from History because the Documents tab is empty
+                return form_dir / sanitise_filename(f"{display} - {label} {when} - {suggested}", 130)
+            letters_dir.mkdir(parents=True, exist_ok=True)
             return letters_dir / sanitise_filename(f"{when} - {display} - {suggested}", 130)
     else:  # flat: everything side by side in the project folder (the original layout)
         prefix = f"{index:02d} - {sanitise(form['name'], 50)} [{form['id']}]"
@@ -515,6 +586,8 @@ def process_form(page, args, log, project, project_dir, index, form):
             if kind == "documents":
                 return form_dir / (f"{prefix}.zip" if suggested.lower().endswith(".zip")
                                    else sanitise_filename(f"{prefix} - {suggested}"))
+            if kind == "copy":
+                return form_dir / sanitise_filename(f"{prefix} - {label} {(stamp or 'undated').replace('_', ' ')} - {suggested}", 120)
             return form_dir / sanitise_filename(f"{prefix} - {label}", 120)
 
     open_form(page, args.base_url, form["id"])
@@ -523,9 +596,15 @@ def process_form(page, args, log, project, project_dir, index, form):
         return "dumped"
 
     problems = 0
-    if not args.history_scan:
+    form_copy = False
+    if args.letters_only:
+        # Do not download the documents again; only check whether the tab is empty (for the form-copy fallback).
+        cont, loaded, text = open_tab(page, "#documents_tab", "#form-documents-container")
+        form_copy = (not loaded and bool(NO_ITEMS_RE.search(text))) or (loaded and cont.locator("td.dataTables_empty").count() > 0)
+    elif not args.history_scan:
         try:
             status, detail, dest = download_documents(page, args, dest_for)
+            form_copy = status == "empty"
             log.row(project, form, "documents", dest.name if dest else "", status, detail)
             problems += status in ("error", "warning")
         except Exception as e:  # keep going with the history tab
@@ -533,7 +612,7 @@ def process_form(page, args, log, project, project_dir, index, form):
             problems += 1
         time.sleep(args.delay)
     try:
-        for status, detail, dest in download_history_attachments(page, args, dest_for):
+        for status, detail, dest in download_history_attachments(page, args, dest_for, form_copy=form_copy, form_name=form["name"]):
             item = {"scan": "history scan", "scansummary": "history scan summary"}.get(status, "history attachment")
             log.row(project, form, item, dest.name if dest else "", status, detail)
             if status == "scansummary":
@@ -542,8 +621,8 @@ def process_form(page, args, log, project, project_dir, index, form):
     except Exception as e:
         log.row(project, form, "history", "", "error", repr(e))
         problems += 1
-    if args.history_scan:
-        return "scanned"
+    if args.history_scan or args.letters_only:
+        return "scanned"  # these modes do not change which forms count as finished
     return "complete" if problems == 0 else "needs_review"
 
 
@@ -570,7 +649,7 @@ def tidy_export(args):
             desc = r["detail"].split("|", 1)[-1].strip()
             pdir = out / f"{r['project_id']} - {sanitise(r['project_title'], 70)}"
             key = (pdir, r["file"])
-            row_matches[key] = row_matches.get(key, False) or args.history_all or bool(pattern.search(desc))
+            row_matches[key] = row_matches.get(key, False) or history_row_wanted(args, desc, r["form_name"])
 
     actions = []  # (path, reason)
     for pdir in sorted(p for p in out.iterdir() if p.is_dir() and not p.name.startswith((".", "_"))):
@@ -666,7 +745,7 @@ def _letter_row_matches(out, args):
             desc = r["detail"].split("|", 1)[-1].strip()
             pdir = out / f"{r['project_id']} - {sanitise(r['project_title'], 70)}"
             key = (pdir, r["file"])
-            result[key] = result.get(key, False) or args.history_all or bool(pattern.search(desc))
+            result[key] = result.get(key, False) or history_row_wanted(args, desc, r["form_name"])
     return result
 
 
@@ -930,7 +1009,10 @@ def run_project(page, args, log, out, project, n, total):
     project_dir.mkdir(parents=True, exist_ok=True)
 
     for i, form in enumerate(forms, 1):
-        if log.state.get(form["id"]) == "complete" and not args.force and not args.history_scan:
+        if args.retry_empty:
+            if log.docs.get(form["id"]) != "empty":
+                continue
+        elif log.state.get(form["id"]) == "complete" and not args.force and not args.history_scan and not args.letters_only:
             print(f"    skip (already complete): {form['name']}")
             continue
         print(f"    {form['name']}")
@@ -975,6 +1057,12 @@ def main():
                     help="regular expression; only History rows whose description matches are downloaded "
                          "(default: favourable opinion, amendment approved by the RGIO, response to provisional letter approved)")
     ap.add_argument("--history-all", action="store_true", help="download every History attachment, whatever the description")
+    ap.add_argument("--retry-empty", action="store_true",
+                    help="only forms whose last Documents result in export_log.csv was 'empty' (no zip): check the tab again, "
+                         "download the zip if it now has documents, otherwise save the form's submitted copy from History")
+    ap.add_argument("--letters-only", action="store_true",
+                    help="only (re)save the History letters of every form: documents are not downloaded again and "
+                         "forms are not marked finished. Use it to top up an export made before a rule changed")
     ap.add_argument("--history-scan", action="store_true",
                     help="list History rows that have an attachment and whether they would be downloaded; "
                          "downloads nothing (results go in export_log.csv, item 'history scan')")
@@ -1019,6 +1107,10 @@ def main():
                 w.writerows(projects)
             print(f"{len(projects)} projects listed.")
 
+            if args.retry_empty:
+                wanted_ids = log.empty_project_ids()
+                projects = [pr for pr in projects if pr["id"] in wanted_ids]
+                print(f"{len(wanted_ids)} project(s) hold a form whose Documents tab came back empty.")
             if args.project:
                 projects = [pr for pr in projects if pr["id"] in set(args.project)]
             if args.owned_only:

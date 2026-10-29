@@ -5,7 +5,8 @@ Saves your projects from LSHTM Ethics Online (LEO, `leo.lshtm.ac.uk`) to your co
 For every project you can see in **All Projects**, and every form in its project tree, it saves:
 
 - the **Documents** tab as one zip per form (the same file as "Download Selected");
-- the **committee approval letters** from the **History** tab: favourable opinions, amendments approved by the RGIO, and responses to a provisional letter that were approved.
+- the **committee approval letters** from the **History** tab: favourable opinions, amendments approved by the RGIO, responses to a provisional letter that were approved, the committee's provisional letters ("further clarification has been requested", "provisionally approved"), and the "Study Closed" notice that approves an End of Study form. For Annual Report and Protocol Deviation forms, which record their outcome as a status change, the letter on the "status changed to Favourable" row and on an RGIO acceptance;
+- for a form whose Documents tab lists nothing (LEO says "There are currently no documents listed", as it does for closed End of Study forms), the form's own copy from the **History** tab instead: its "Form submitted" attachment (the submitted form; if the form was submitted more than once, only the latest).
 
 It also writes a log of everything it did, so you can check that nothing was missed.
 
@@ -78,6 +79,7 @@ LEO_export/
 - Each form has its own numbered subfolder inside the project folder, in the order the forms appear in LEO's project tree. Folder `01` is the main ethics application. The amendments, annual reports and any other forms follow, each in its own folder at the same level. They are not placed inside the `01` folder.
 - Forms that share a name, such as several annual reports, are numbered `1`, `2`, `3` in tree order.
 - Each form folder holds one zip of everything on that form's Documents tab.
+- Where a form has no documents listed, there is no zip. Its "Form submitted" attachment from History (the submitted form; only the latest if it was resubmitted) is saved in the form's own folder instead, named like `End of Study Form - submitted form 2025-01-14 0839 - attachmentEntry-84719.pdf`. The form's approval letter, such as a "Study Closed" notice, goes in **Approval letters** as usual.
 - **Approval letters** collates the letters from every form. Names start with the date and time, so they sort in the order issued, followed by the form name and the original file name.
 - LEO's internal form IDs are not in the names. They are in `export_log.csv`.
 - `--layout flat` gives the original layout instead, with every zip and letter side by side in the project folder.
@@ -128,8 +130,8 @@ Open `export_log.csv` and filter the `status` column. Anything other than `ok` o
 | `info` | Note only, for example "3 other attachments not downloaded (description did not match)". |
 | `duplicate` | A letter with identical content to one already saved for this form. It was not kept. |
 | `warning` | The Documents table lists a different number of files from the number inside the zip. Check that form. |
-| `empty` | The tab had no table (for example, no History table). Worth opening that form in LEO to confirm. |
-| `error` | A download did not start, a button was not found, or a page did not load. The form is retried on the next run. |
+| `empty` | The tab had no table. The detail shows what the tab said instead. A message such as "No documents…" means the form really has none. Worth opening that form in LEO to confirm. |
+| `error` | A download did not start, a button was not found, a page did not load, or the Documents tab stayed blank ("tab stayed blank" in the detail). The form is retried on the next run. |
 
 When a form finishes, a row with item `form` is added to `export_log.csv`, with status `complete` or `needs_review`. Only `complete` forms are skipped on a re-run.
 
@@ -148,8 +150,13 @@ LEO records an approval in several different wordings. By default a History row 
 - `favourable opinion` (but not `unfavourable opinion`)
 - `approved by the RGIO` (amendment approvals)
 - `response to the provisional letter has been approved`
+- `to Study Closed` (the approval of an End of Study form)
+- `provisionally approved` (provisional approval letters)
+- `further clarification has been requested` (the committee's provisional opinion letter)
 
-Not downloaded by default: provisional approvals, "approval not required" notices, unfavourable opinions, annual report acceptances, and rows such as "Form submitted" or "Form signed".
+For **Annual Report** and **Protocol Deviation** forms only, these are also downloaded: a row "Form status changed … to Favourable." (the approval letter) and "reviewed and accepted by the RGIO". They are limited to those form types because on other forms the same status row carries a copy of a letter already saved.
+
+Not downloaded by default: "approval not required", "not valid" and "invalidated" notices, unfavourable opinions, the status-change rows between review stages, and rows such as "Form submitted" or "Form signed". ("Form signed" is the same document as "Form submitted".)
 
 ### Preview before you commit
 
@@ -169,12 +176,37 @@ Read through the `skip` descriptions. If something you want is being skipped, ch
 `--history-pattern` takes a regular expression:
 
 ```
-python3 leo_export.py --history-pattern "favourable opinion|approved by the RGIO|response to the provisional letter has been approved|provisionally approved"
+python3 leo_export.py --history-pattern "favourable opinion|approved by the RGIO|response to the provisional letter has been approved|to Study Closed|provisionally approved"
 ```
 
-The pattern replaces the default, so include every wording you want. The example above adds provisional approvals to the three defaults.
+The pattern replaces the default, so include every wording you want. The example above repeats some of the defaults. Always start from the full list above.
 
 `--history-all` downloads every History attachment regardless of wording.
+
+### Topping up an export
+
+When the rules for which letters are saved change, you do not need to download everything again. This visits every form's History tab and saves any letter the current rules want, without downloading a zip:
+
+```
+python3 leo_export.py --letters-only
+```
+
+- Existing files are overwritten in place, so nothing is duplicated.
+- It does not change which forms count as finished, so it can be run again at any time.
+- It still opens each form's Documents tab, to check whether it is empty (for the "Form submitted" fallback), but downloads nothing from it.
+- Add `--project ID` (repeatable) to limit it to some projects.
+
+### Forms with no zip
+
+A form can end up with no zip because its Documents tab genuinely lists nothing, or because the tab failed to load on an earlier run (older versions recorded both as `empty` and marked the form finished). To settle every such form without downloading anything else again:
+
+```
+python3 leo_export.py --retry-empty
+```
+
+- It reads `export_log.csv`, visits only the projects that hold a form whose last Documents result was `empty`, and checks each of those forms again.
+- If the tab now shows documents, the zip is downloaded. If it says there are none, the form's submitted copy is saved from History, as described above.
+- Forms that really have no documents stay `empty`, and are looked at again each time you run it (a few seconds each). Check the `detail` of those rows: it now shows the text LEO displays.
 
 ### Clean up an earlier export
 
@@ -203,6 +235,8 @@ python3 leo_export.py --untidy          # put everything back
 | `--layout flat` | The original layout: every zip and letter side by side in the project folder. |
 | `--restructure`, `--apply`, `--unrestructure` | Move an existing flat export into the structured layout (see above). |
 | `--history-pattern REGEX` | Which History rows to download (see above). |
+| `--retry-empty` | Only forms whose last Documents result in `export_log.csv` was `empty` (no zip). Checks the tab again, downloads the zip if it now has documents, otherwise saves the submitted copy from History. See "Forms with no zip". |
+| `--letters-only` | Only save the History letters of every form again. Documents are not downloaded again, and forms are not marked finished. See "Topping up an export". |
 | `--history-all` | Download every History attachment. |
 | `--history-scan` | Preview only (see above). |
 | `--tidy`, `--apply`, `--untidy` | Clean up an existing export (see above). |

@@ -7,6 +7,7 @@
 
   const SK = "leoExportState";
   const ROOT = "LEO_export";
+  let documentsEmpty = false; // set when a form's Documents tab genuinely lists nothing
   let misplacedNote = "";   // set when a file is saved somewhere other than planned
   const rootOf = (state) => (state && state.opts && state.opts.root) || ROOT;
   function cleanRoot(text) {
@@ -30,7 +31,11 @@
   const send = (msg) => chrome.runtime.sendMessage(msg);
 
   // History rows are exported only when their description records an approval.
-  const APPROVAL = /(?<!un)favourable opinion|approved by the RGIO|response to the provisional letter has been approved/i;
+  const APPROVAL = /(?<!un)favourable opinion|approved by the RGIO|response to the provisional letter has been approved|\bto Study Closed\b|provisionally approved|further clarification has been requested/i;
+  // Annual Report and Protocol Deviation forms record their outcome as a status change to "Favourable" (or an RGIO
+  // acceptance) with the letter attached, rather than a "favourable opinion" notification.
+  const STATUS_FORMS = /^\s*(Annual Report|Protocol Deviation)/i;
+  const STATUS_ROWS = /\bto Favourable\.?\s*$|reviewed and accepted by the RGIO/i;
 
   const path = location.pathname;
   const isList = /\/ActivityForm\/FolderProjectList/i.test(path);
@@ -252,16 +257,42 @@
     }
   }
 
+  // When the Documents tab lists nothing (LEO: "There are currently no documents listed", as for closed End of
+  // Study forms), the form's own content is only reachable from History, so its "Form submitted" attachment is saved.
+  const FORM_COPY_ROWS = [["submitted form", /^\s*Form submitted\b/i]];
+
+  const NO_ITEMS = /\b(no|not)\b.*\b(documents?|data|records?|attachments?|entries)\b/i;
+
+  // Click a tab and wait for its table. If nothing loads (for example the click arrived before LEO's own
+  // script was ready), click again. Returns { cont, table, text } where text is what the tab shows instead.
+  async function openTab(tabSelector, containerSelector, waits = [8000, 12000, 20000]) {
+    await waitFor(() => document.readyState === "complete", 30000);
+    const cont = document.querySelector(containerSelector);
+    for (const wait of waits) {
+      document.querySelector(tabSelector).click();
+      const table = await waitFor(() => cont.querySelector("table tbody tr") && cont.querySelector("table"), wait);
+      if (table) return { cont, table, text: "" };
+      const shown = norm(cont.innerText).slice(0, 120);
+      if (NO_ITEMS.test(shown)) return { cont, table: null, text: shown }; // the tab says there is nothing: no need to click again
+    }
+    return { cont, table: null, text: norm(cont.innerText).slice(0, 120) };
+  }
+
   async function exportDocuments(state, project, form, prefix, dir) {
-    document.querySelector("#documents_tab").click();
-    const cont = document.querySelector("#form-documents-container");
-    const table = await waitFor(() => cont.querySelector("table tbody tr") && cont.querySelector("table"), 30000);
-    if (!table) { logRow(state, form, project, "documents", "", "EMPTY", "no documents table appeared"); return true; }
+    const opened = await openTab("#documents_tab", "#form-documents-container");
+    const cont = opened.cont;
+    if (!opened.table) {
+      logRow(state, form, project, "documents", "", "EMPTY",
+        "no documents table appeared" + (opened.text ? ` (tab shows: "${opened.text}")` : " (tab stayed blank)"));
+      // a tab that says there are no documents is genuinely empty; a blank tab is retried on the next run
+      documentsEmpty = NO_ITEMS.test(opened.text);
+      return documentsEmpty;
+    }
     await sleep(500);
     await showAllRows(cont);
 
     const rows = [...cont.querySelectorAll("table tbody tr")].filter((r) => !r.querySelector("td.dataTables_empty"));
-    if (!rows.length) { logRow(state, form, project, "documents", "", "EMPTY", "document table is empty"); return true; }
+    if (!rows.length) { logRow(state, form, project, "documents", "", "EMPTY", "document table is empty"); documentsEmpty = true; return true; }
 
     cont.querySelectorAll("input[type=checkbox]").forEach((cb) => { if (visible(cb) && !cb.checked) cb.click(); });
     const unticked = [...cont.querySelectorAll("input[type=checkbox]")].filter((cb) => visible(cb) && !cb.checked).length;
@@ -292,11 +323,14 @@
     }
   }
 
-  async function exportLetters(state, project, form, prefix, dir, setStatus) {
-    document.querySelector("#history_tab").click();
-    const cont = document.querySelector("#form-history-container");
-    const table = await waitFor(() => cont.querySelector("table tbody tr") && cont.querySelector("table"), 20000);
-    if (!table) return true;
+  async function exportLetters(state, project, form, prefix, dir, setStatus, docDir) {
+    const opened = await openTab("#history_tab", "#form-history-container", [8000, 12000]);
+    const cont = opened.cont;
+    if (!opened.table) {
+      logRow(state, form, project, "history", "", "EMPTY",
+        "no history table appeared" + (opened.text ? ` (tab shows: "${opened.text}")` : " (tab stayed blank)"));
+      return true;
+    }
     await sleep(500);
     await showAllRows(cont);
 
@@ -306,6 +340,7 @@
     const descCol = col("description", 2);
     let ok = true;
     let nAttach = 0, nWanted = 0, skipped = 0;
+    const copySaved = {}; // fallback label -> date tag of the submitted copy already saved: only the latest is kept
     const scan = !!state.opts.scanOnly;
 
     for (let pg = 0; pg < 500; pg++) {
@@ -317,7 +352,12 @@
         if (!btn || isDisabled(btn)) continue;
         const when = cells[dateCol].innerText;
         const desc = norm(cells[descCol].innerText);
-        const wanted = APPROVAL.test(desc);
+        let wanted = APPROVAL.test(desc) || (STATUS_FORMS.test(form.name) && STATUS_ROWS.test(desc));
+        let copyLabel = "";
+        if (documentsEmpty && !wanted) {
+          const hit = FORM_COPY_ROWS.find(([, rx]) => rx.test(desc));
+          if (hit) { copyLabel = hit[0]; wanted = true; }
+        }
         nAttach++;
         if (wanted) nWanted++;
         if (scan) {
@@ -325,13 +365,17 @@
           continue;
         }
         if (!wanted) { skipped++; continue; }
+        if (copyLabel && copySaved[copyLabel] && dateTag(when) <= copySaved[copyLabel]) { skipped++; continue; } // older version of a resubmitted form
         setStatus(`${form.name}: letter ${dateTag(when)}`);
         try {
-          const got = await downloadVia(btn, dir, `${dateTag(when).replace("_", " ")} - ${prefix}`, "append", 90000, form.id);
+          if (copyLabel) copySaved[copyLabel] = dateTag(when);
+          const got = copyLabel
+            ? await downloadVia(btn, docDir, `${prefix} - ${copyLabel} ${dateTag(when).replace("_", " ")}`, "append", 90000, form.id)
+            : await downloadVia(btn, dir, `${dateTag(when).replace("_", " ")} - ${prefix}`, "append", 90000, form.id);
           if (got.dupOf) {
             logRow(state, form, project, "history attachment", got.path, "CHECK", `${norm(when)} | ${desc} | possible duplicate: same name and size as ${got.dupOf}`);
           } else {
-            logRow(state, form, project, "history attachment", got.path, "OK", `${norm(when)} | ${desc}`);
+            logRow(state, form, project, "history attachment", got.path, "OK", `${norm(when)} | ${desc}` + (copyLabel ? " (form copy: Documents tab lists nothing)" : ""));
           }
         } catch (e) {
           ok = false;
@@ -729,6 +773,7 @@
     } else if (state.attempts[form.id] > 3) {
       logRow(state, form, project, "form", "", "ERROR", "skipped after 3 attempts");
     } else {
+      documentsEmpty = false;
       const projectDir = `${rootOf(state)}/${sanitise(label, 55)}`;
       const names = formNames(state.forms)[state.f];
       const docDir = `${projectDir}/${names.folder}`;
@@ -740,7 +785,7 @@
         if ((await isStillRunning()) && !misplacedNote) {
           await sleep(state.opts.delayMs);
           setStatus(`${summary(state)}\n${label.slice(0, 60)}\n${form.name}: history`);
-          ok = (await exportLetters(state, project, form, names.display, letterDir, (t) => setStatus(`${summary(state)}\n${t}`))) && ok;
+          ok = (await exportLetters(state, project, form, names.display, letterDir, (t) => setStatus(`${summary(state)}\n${t}`), docDir)) && ok;
         }
       } catch (e) {
         ok = false;
