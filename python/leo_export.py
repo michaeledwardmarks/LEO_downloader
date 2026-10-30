@@ -65,12 +65,17 @@ FORM_COPY_ROWS = (("submitted form", re.compile(r"^\s*Form submitted\b", re.I)),
 #   "Form status changed from ... to Study Closed"                (the approval of an End of Study form)
 #   "... provisionally approved"                                   (provisional approval letters)
 #   "... further clarification has been requested"                 (the committee's provisional opinion letter)
-DEFAULT_HISTORY_PATTERN = (r"(?<!un)favourable opinion"
+#   "... unfavourable opinion" (matched by "favourable opinion"), "... is not valid", "... has been invalidated",
+#   "ethics approval ... is not required"                          (the other decisions, which are archived too)
+DEFAULT_HISTORY_PATTERN = (r"favourable opinion"
                            r"|approved by the RGIO"
                            r"|response to the provisional letter has been approved"
                            r"|\bto Study Closed\b"
                            r"|provisionally approved"
-                           r"|further clarification has been requested")
+                           r"|further clarification has been requested"
+                           r"|\bis not valid\b"
+                           r"|has been invalidated"
+                           r"|ethics approval[^.]{0,120}is not required")
 # Annual Report and Protocol Deviation forms record their outcome as a status change to "Favourable" (or an RGIO
 # acceptance) with the letter attached, rather than a "favourable opinion" notification.
 STATUS_OUTCOME_FORMS = re.compile(r"^\s*(Annual Report|Protocol Deviation)", re.I)

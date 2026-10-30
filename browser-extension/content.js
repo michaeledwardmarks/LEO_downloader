@@ -32,7 +32,7 @@
   const send = (msg) => chrome.runtime.sendMessage(msg);
 
   // History rows are exported only when their description records an approval.
-  const APPROVAL = /(?<!un)favourable opinion|approved by the RGIO|response to the provisional letter has been approved|\bto Study Closed\b|provisionally approved|further clarification has been requested/i;
+  const APPROVAL = /favourable opinion|approved by the RGIO|response to the provisional letter has been approved|\bto Study Closed\b|provisionally approved|further clarification has been requested|\bis not valid\b|has been invalidated|ethics approval[^.]{0,120}is not required/i;
   // Annual Report and Protocol Deviation forms record their outcome as a status change to "Favourable" (or an RGIO
   // acceptance) with the letter attached, rather than a "favourable opinion" notification.
   const STATUS_FORMS = /^\s*(Annual Report|Protocol Deviation)/i;

@@ -148,16 +148,18 @@ For scale: a preview scan of 175 forms across 97 projects took about 11 minutes.
 
 LEO records an approval in several different wordings. By default a History row is downloaded when its description matches any of these (case-insensitive):
 
-- `favourable opinion` (but not `unfavourable opinion`)
+- `favourable opinion` (this also matches `unfavourable opinion`, so unfavourable decisions are archived too)
 - `approved by the RGIO` (amendment approvals)
 - `response to the provisional letter has been approved`
 - `to Study Closed` (the approval of an End of Study form)
 - `provisionally approved` (provisional approval letters)
 - `further clarification has been requested` (the committee's provisional opinion letter)
+- `is not valid` and `has been invalidated` (the notice that an application or amendment is not valid)
+- `ethics approval … is not required` (the notice that ethics approval is not needed)
 
 For **Annual Report** and **Protocol Deviation** forms only, these are also downloaded: a row "Form status changed … to Favourable." (the approval letter) and "reviewed and accepted by the RGIO". They are limited to those form types because on other forms the same status row carries a copy of a letter already saved.
 
-Not downloaded by default: "approval not required", "not valid" and "invalidated" notices, unfavourable opinions, the status-change rows between review stages, and rows such as "Form submitted" or "Form signed". ("Form signed" is the same document as "Form submitted".)
+Not downloaded by default: the status-change rows between review stages (including "Form status changed … to Invalid Application", whose letter is the "not valid" notice above), and rows such as "Form submitted" or "Form signed". ("Form signed" is the same document as "Form submitted".)
 
 ### Preview before you commit
 
