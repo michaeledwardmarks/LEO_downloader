@@ -34,6 +34,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -139,7 +140,18 @@ def form_display_names(forms):
 
 
 def date_tag(text):
-    """'08/10/2026 14:33' (dd/mm/yyyy) -> '2026-10-08_1433'."""
+    """'08/10/2026 2:33 PM' or '08/10/2026 14:33' (dd/mm/yyyy) -> '2026-10-08_1433'. LEO shows 12-hour times."""
+    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})[\s,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp])?\.?[Mm]?", text or "")
+    if not m:
+        return "undated"
+    hour = int(m[4])
+    if m[6]:
+        hour = hour % 12 + (12 if m[6].lower() == "p" else 0)
+    return f"{m[3]}-{int(m[2]):02d}-{int(m[1]):02d}_{hour:02d}{m[5]}"
+
+
+def old_date_tag(text):
+    """What earlier versions wrote into file names: it only understood two-digit 24-hour times."""
     m = re.search(r"(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2})", text or "")
     return f"{m[3]}-{m[2]}-{m[1]}_{m[4]}{m[5]}" if m else "undated"
 
@@ -787,6 +799,69 @@ def untidy_export(args):
     return 0
 
 
+# ---------------------------------------------------------------- correct the date stamp in file names
+
+def redate_export(args):
+    """Rename letters and form copies whose name carries a missing or wrong date. Earlier versions could only read
+    two-digit 24-hour times, but LEO shows times like '2:33 PM', so most names said 'undated' and PM times were wrong.
+    The correct date is in export_log.csv (the 'history attachment' rows), so nothing is downloaded again."""
+    out = Path(args.out).expanduser().resolve()
+    log = out / "export_log.csv"
+    if not log.exists():
+        print(f"{log} not found: run this against the export folder that holds export_log.csv.")
+        return 1
+    index = {}  # (project id, file name) -> paths: form copies have the same name in many projects
+    for root, dirs, files in os.walk(out):
+        dirs[:] = [d for d in dirs if d not in (".browser_profile", "_tidy_removed")]
+        for f in files:
+            rel = (Path(root) / f).relative_to(out).parts
+            m = re.match(r"^(\d+) - ", rel[0]) if len(rel) > 1 else None
+            if m:
+                index.setdefault((m[1], f), []).append(Path(root) / f)
+    seen, plan = set(), []
+    with open(log, newline="", encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if r["item"] != "history attachment" or r["status"] not in ("ok", "duplicate") or not r["file"]:
+                continue
+            when = r["detail"].split(" | ", 1)[0]
+            old = old_date_tag(when).replace("_", " ")
+            new = date_tag(when).replace("_", " ")
+            name = r["file"]
+            if old == new or new == "undated" or (r["project_id"], name) in seen:
+                continue
+            seen.add((r["project_id"], name))
+            if name.startswith(f"{old} - "):
+                new_name = f"{new} - " + name[len(old) + 3:]
+            elif f" submitted form {old} - " in name:
+                new_name = name.replace(f" submitted form {old} - ", f" submitted form {new} - ", 1)
+            else:
+                continue
+            plan.append((r["project_id"], name, new_name))
+    renamed = already = missing = clash = 0
+    report = out / "redate_report.csv"
+    with open(report, "w", newline="", encoding="utf-8-sig") as rf:
+        w = csv.writer(rf)
+        w.writerow(["project_id", "old_name", "new_name", "result"])
+        for pid, name, new_name in plan:
+            found, target = index.get((pid, name), []), index.get((pid, new_name), [])
+            if len(found) == 1 and not target:
+                result = "renamed" if args.apply else "would rename"
+                if args.apply:
+                    found[0].rename(found[0].with_name(new_name))
+                renamed += 1
+            elif not found and target:
+                result, already = "already renamed", already + 1
+            elif not found:
+                result, missing = "file not found", missing + 1
+            else:
+                result, clash = "skipped: more than one file of that name, or the new name already exists", clash + 1
+            w.writerow([pid, name, new_name, result])
+    verb = "Renamed" if args.apply else "Would rename"
+    print(f"{verb} {renamed} file(s). Already correct: {already}. Not found on disk: {missing}. Skipped: {clash}.")
+    print(f"Details: {report}" + ("" if args.apply else "\nNothing was changed. Run again with --apply to rename."))
+    return 0
+
+
 # ---------------------------------------------------------------- restructure an existing flat export
 
 OLD_LETTER_RE = re.compile(r"^(\d{2}) - (.+) \[(\d+)\] - letter (\d{4}-\d{2}-\d{2}|undated)(?:_(\d{4}))? - (.+)$")
@@ -1131,7 +1206,10 @@ def main():
                          "downloads nothing (results go in export_log.csv, item 'history scan')")
     ap.add_argument("--tidy", action="store_true",
                     help="clean an existing export: move non-matching and duplicate letters to _tidy_removed/ (dry run unless --apply)")
-    ap.add_argument("--apply", action="store_true", help="with --tidy: actually move the files")
+    ap.add_argument("--apply", action="store_true", help="with --tidy, --restructure or --redate: actually make the changes")
+    ap.add_argument("--redate", action="store_true",
+                    help="rename letters and form copies whose name says 'undated' or has the wrong time, using the dates "
+                         "in export_log.csv (dry run unless --apply; nothing is downloaded)")
     ap.add_argument("--untidy", action="store_true", help="undo --tidy --apply: move files back from _tidy_removed/")
     ap.add_argument("--delay", type=float, default=1.0, help="seconds to pause between actions (default 1)")
     ap.add_argument("--download-timeout", type=int, default=180, help="seconds to wait for each download")
@@ -1146,6 +1224,8 @@ def main():
         return unrestructure_export(args)
     if args.restructure:
         return restructure_export(args)
+    if args.redate:
+        return redate_export(args)
     if args.untidy:
         return untidy_export(args)
     if args.tidy:

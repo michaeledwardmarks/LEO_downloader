@@ -157,5 +157,6 @@ Some LSHTM computers do not allow Developer mode or changes to download settings
 
 - It has been tested against a mock of LEO and has not been confirmed on every LEO page layout.
 - It cannot open the downloaded files, so it cannot check zip contents or remove duplicate letters by content. The Python version can.
+- Exports made with versions before 1.6.0 have `undated` in many file names, because LEO's 12-hour times could not be read. The Python version's `--redate` renames them from the log; or run the export again with 1.6.0 or later.
 - It has no top-up mode. To add letters or zips to an earlier export, run the same projects again: files are saved under the same names, so they are overwritten in place. The Python version can top up letters only (`--letters-only`) or re-check forms that have no zip (`--retry-empty`).
 - Only the Documents and History tabs are exported.

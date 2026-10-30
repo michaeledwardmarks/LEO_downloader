@@ -223,6 +223,17 @@ python3 leo_export.py --untidy          # put everything back
 
 `--tidy` moves letters that do not match the current pattern, and letters with identical content to another letter of the same form, into `LEO_export/_tidy_removed/`. Nothing is deleted. Read `tidy_report.csv` before using `--apply`. Delete `_tidy_removed` yourself once you are satisfied.
 
+### Fix the dates in file names
+
+Earlier versions could not read LEO's 12-hour times (for example "2:33 PM"), so most letters and submitted copies were saved with `undated` in the name, and some PM times were wrong. The correct dates are in `export_log.csv`, so the files can be renamed without downloading anything:
+
+```
+python3 leo_export.py --redate            # report only; writes redate_report.csv
+python3 leo_export.py --redate --apply    # rename the files
+```
+
+Run it from the folder that holds the export, or add `--out FOLDER`. It is safe to run twice. Letters downloaded by this version already have the right date.
+
 ---
 
 ## Options
@@ -243,6 +254,7 @@ python3 leo_export.py --untidy          # put everything back
 | `--history-all` | Download every History attachment. |
 | `--history-scan` | Preview only (see above). |
 | `--tidy`, `--apply`, `--untidy` | Clean up an existing export (see above). |
+| `--redate`, `--apply` | Rename letters and form copies whose name says `undated` or has the wrong time, using the dates in `export_log.csv`. See "Fix the dates in file names". |
 | `--headed` | Keep the browser window visible. |
 | `--channel chrome` / `msedge` | Use an installed browser. |
 | `--delay SECONDS` | Pause between actions (default 1). |

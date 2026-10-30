@@ -108,9 +108,14 @@
 
   const LETTERS_DIR = "Approval letters";
 
+  // '08/10/2026 2:33 PM' or '08/10/2026 14:33' (dd/mm/yyyy) -> '2026-10-08_1433'. LEO shows 12-hour times.
   function dateTag(text) {
-    const m = String(text || "").match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
-    return m ? `${m[3]}-${m[2]}-${m[1]}_${m[4]}${m[5]}` : "undated";
+    const m = String(text || "").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[\s,]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp])?\.?[Mm]?/);
+    if (!m) return "undated";
+    let hour = parseInt(m[4], 10);
+    if (m[6]) hour = (hour % 12) + (m[6].toLowerCase() === "p" ? 12 : 0);
+    const two = (n) => String(n).padStart(2, "0");
+    return `${m[3]}-${two(parseInt(m[2], 10))}-${two(parseInt(m[1], 10))}_${two(hour)}${m[5]}`;
   }
 
   // ------------------------------------------------------------------ DOM helpers
