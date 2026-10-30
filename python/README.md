@@ -79,6 +79,7 @@ LEO_export/
 - Each form has its own numbered subfolder inside the project folder, in the order the forms appear in LEO's project tree. Folder `01` is the main ethics application. The amendments, annual reports and any other forms follow, each in its own folder at the same level. They are not placed inside the `01` folder.
 - Forms that share a name, such as several annual reports, are numbered `1`, `2`, `3` in tree order.
 - Each form folder holds one zip of everything on that form's Documents tab.
+- A form with no documents listed and no submitted copy in History gets a short text file in its own folder saying why: `Form never submitted.txt` if LEO's Submissions tab says the form has not been submitted yet, otherwise `No files held in LEO.txt`.
 - Where a form has no documents listed, there is no zip. Its "Form submitted" attachment from History (the submitted form; only the latest if it was resubmitted) is saved in the form's own folder instead, named like `End of Study Form - submitted form 2025-01-14 0839 - attachmentEntry-84719.pdf`. The form's approval letter, such as a "Study Closed" notice, goes in **Approval letters** as usual.
 - **Approval letters** collates the letters from every form. Names start with the date and time, so they sort in the order issued, followed by the form name and the original file name.
 - LEO's internal form IDs are not in the names. They are in `export_log.csv`.
@@ -205,7 +206,7 @@ python3 leo_export.py --retry-empty
 ```
 
 - It reads `export_log.csv`, visits only the projects that hold a form whose last Documents result was `empty`, and checks each of those forms again.
-- If the tab now shows documents, the zip is downloaded. If it says there are none, the form's submitted copy is saved from History, as described above.
+- If the tab now shows documents, the zip is downloaded. If it says there are none, the form's submitted copy is saved from History, as described above. If there is none, a text file is written saying why (`Form never submitted.txt`, decided from the form's Submissions tab, or `No files held in LEO.txt`).
 - Forms that really have no documents stay `empty`, and are looked at again each time you run it (a few seconds each). Check the `detail` of those rows: it now shows the text LEO displays.
 
 ### Clean up an earlier export

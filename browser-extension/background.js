@@ -117,13 +117,16 @@ async function handle(msg, sender) {
       const slash = msg.path.lastIndexOf("/");
       const dir = msg.path.slice(0, slash);
       const name = msg.path.slice(slash + 1).replace(/\.[^.]+$/, "");
+      const ext = msg.ext || ".csv";
+      const mime = msg.mime || "text/csv";
       const tok = crypto.randomUUID();
       const pending = (await sget("pending")) || [];
-      pending.push({ tok, dir, name, mode: "replace", group: "" });
+      pending.push({ tok, dir, name, mode: "replace", group: "", ext });
       await sset("pending", pending);
       await sset("dl:" + tok, { state: "waiting" });
-      const url = "data:text/csv;charset=utf-8," + encodeURIComponent("\ufeff" + msg.text);
-      const id = await chrome.downloads.download({ url, filename: name + ".csv", conflictAction: "overwrite" });
+      const body = (ext === ".csv" ? "\ufeff" : "") + msg.text;
+      const url = "data:" + mime + ";charset=utf-8," + encodeURIComponent(body);
+      const id = await chrome.downloads.download({ url, filename: name + ext, conflictAction: "overwrite" });
       return { id, tok };
     }
   }
@@ -142,7 +145,7 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
     const dir = String(entry.dir).split("/").map((p) => clean(p, 90)).join("/");
     const name =
       entry.mode === "replace"
-        ? clean(entry.name, 90) + safeExt(ext)
+        ? clean(entry.name, 90) + safeExt(entry.ext || ext)
         : clean(entry.name, 100) + " - " + cleanFile(base, 40);
     const path = dir + "/" + name;
 

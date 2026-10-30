@@ -49,6 +49,10 @@ DEFAULT_BASE = "https://leo.lshtm.ac.uk"
 LETTERS_DIR = "Approval letters"                # all approval letters of a project, collated
 OTHER_DIR = "Other History attachments"         # restructure only: non-approval and duplicate letters
 ALL_DOCS = "all documents"
+# A form with no documents listed and nothing saved from History gets a short text file saying why its folder is empty.
+NOTE_NEVER = "Form never submitted.txt"
+NOTE_NOTHING = "No files held in LEO.txt"
+NEVER_SUBMITTED_RE = re.compile(r"has not been submitted yet", re.I)
 # When a form's Documents tab lists nothing (LEO says "There are currently no documents listed", as it does for
 # closed End of Study forms), the form's own content is only reachable from its History rows. The "Form submitted"
 # attachment is then saved into the form's folder as well: (label used in the file name, pattern for the description).
@@ -393,6 +397,49 @@ def open_tab(page, tab_selector, container_selector, waits=(8000, 12000, 20000))
     return cont, False, text
 
 
+def submissions_state(page):
+    """Open the Submissions tab. Returns ('never', text) when LEO says the form has not been submitted yet,
+    otherwise ('other', text)."""
+    cont = page.locator("#form-submissions-container")
+    text = ""
+    for wait in (6000, 10000):
+        page.click("#submissions_tab")
+        try:
+            page.wait_for_function(
+                "(sel) => { const c = document.querySelector(sel); return c && c.innerText.trim().length > 0; }",
+                arg="#form-submissions-container", timeout=wait)
+            break
+        except PWTimeout:
+            continue
+    try:
+        text = " ".join(cont.inner_text().split())[:140]
+    except Exception:
+        pass
+    return ("never" if NEVER_SUBMITTED_RE.search(text) else "other"), text
+
+
+def write_form_note(page, project, form, dest_for, log, documents_text=""):
+    """For a form with nothing to export, save a text file saying why."""
+    state, text = submissions_state(page)
+    if state == "never":
+        name = NOTE_NEVER
+        said = NEVER_SUBMITTED_RE.search(text)
+        reason = ("LEO's Submissions tab says \"This form has not been submitted yet\"" if said else "The form was never submitted") + \
+                 ". The form has no documents listed, so there was nothing to export."
+    else:
+        name = NOTE_NOTHING
+        reason = ("LEO lists no documents for this form, and its History has no submitted copy of it, "
+                  "so there was nothing to export.")
+    body = (f"{name[:-4]}\n\n"
+            f"Project: {project['id']} - {project['title']}\n"
+            f"Form: {form['name']} (LEO form ID {form['id']})\n"
+            f"Checked: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n{reason}\n")
+    dest = dest_for("note", name)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body, encoding="utf-8")
+    log.row(project, form, "form note", dest.name, "ok", reason[:160])
+
+
 def download_documents(page, args, dest_for):
     """Documents tab: tick everything, click Download Selected, save the result."""
     cont, loaded, text = open_tab(page, "#documents_tab", "#form-documents-container")
@@ -573,6 +620,8 @@ def process_form(page, args, log, project, project_dir, index, form):
                 ext = Path(suggested).suffix or ".zip"
                 return form_dir / sanitise_filename(f"{display} - {ALL_DOCS}{ext}", 130)
             when = (stamp or "undated").replace("_", " ")
+            if kind == "note":  # explains an otherwise empty form folder
+                return form_dir / suggested
             if kind == "copy":  # form content taken from History because the Documents tab is empty
                 return form_dir / sanitise_filename(f"{display} - {label} {when} - {suggested}", 130)
             letters_dir.mkdir(parents=True, exist_ok=True)
@@ -586,6 +635,8 @@ def process_form(page, args, log, project, project_dir, index, form):
             if kind == "documents":
                 return form_dir / (f"{prefix}.zip" if suggested.lower().endswith(".zip")
                                    else sanitise_filename(f"{prefix} - {suggested}"))
+            if kind == "note":
+                return form_dir / sanitise_filename(f"{prefix} - {suggested}", 120)
             if kind == "copy":
                 return form_dir / sanitise_filename(f"{prefix} - {label} {(stamp or 'undated').replace('_', ' ')} - {suggested}", 120)
             return form_dir / sanitise_filename(f"{prefix} - {label}", 120)
@@ -611,8 +662,10 @@ def process_form(page, args, log, project, project_dir, index, form):
             log.row(project, form, "documents", "", "error", repr(e))
             problems += 1
         time.sleep(args.delay)
+    saved_copy = False
     try:
         for status, detail, dest in download_history_attachments(page, args, dest_for, form_copy=form_copy, form_name=form["name"]):
+            saved_copy = saved_copy or bool(dest and "form copy" in detail)
             item = {"scan": "history scan", "scansummary": "history scan summary"}.get(status, "history attachment")
             log.row(project, form, item, dest.name if dest else "", status, detail)
             if status == "scansummary":
@@ -621,6 +674,11 @@ def process_form(page, args, log, project, project_dir, index, form):
     except Exception as e:
         log.row(project, form, "history", "", "error", repr(e))
         problems += 1
+    if form_copy and not saved_copy and not args.history_scan:
+        try:  # Documents tab genuinely empty and no submitted copy saved: say why the folder is empty
+            write_form_note(page, project, form, dest_for, log)
+        except Exception as e:
+            log.row(project, form, "form note", "", "error", repr(e))
     if args.history_scan or args.letters_only:
         return "scanned"  # these modes do not change which forms count as finished
     return "complete" if problems == 0 else "needs_review"

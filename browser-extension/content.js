@@ -8,6 +8,7 @@
   const SK = "leoExportState";
   const ROOT = "LEO_export";
   let documentsEmpty = false; // set when a form's Documents tab genuinely lists nothing
+  let formCopySaved = false;  // set when the "Form submitted" fallback saved a file for this form
   let misplacedNote = "";   // set when a file is saved somewhere other than planned
   const rootOf = (state) => (state && state.opts && state.opts.root) || ROOT;
   function cleanRoot(text) {
@@ -323,6 +324,32 @@
     }
   }
 
+  const NEVER_SUBMITTED = /has not been submitted yet/i;
+
+  // A form with no documents listed and nothing saved from History gets a short text file saying why its folder is empty.
+  async function writeFormNote(state, project, form, docDir) {
+    document.querySelector("#submissions_tab").click();
+    const cont = document.querySelector("#form-submissions-container");
+    await waitFor(() => cont && norm(cont.innerText).length > 0, 8000);
+    const text = norm(cont ? cont.innerText : "");
+    const never = NEVER_SUBMITTED.test(text);
+    const name = never ? "Form never submitted.txt" : "No files held in LEO.txt";
+    const reason = never
+      ? "LEO's Submissions tab says \"This form has not been submitted yet\". The form has no documents listed, so there was nothing to export."
+      : "LEO lists no documents for this form, and its History has no submitted copy of it, so there was nothing to export.";
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const body = `${name.slice(0, -4)}\n\nProject: ${project.pid} - ${project.title}\nForm: ${form.name} (LEO form ID ${form.id})\nChecked: ${stamp}\n\n${reason}\n`;
+    const { tok } = await send({ type: "saveText", path: `${docDir}/${name}`, text: body, mime: "text/plain", ext: ".txt" });
+    for (let i = 0; i < 50; i++) {  // wait until it is written, so it cannot be mixed up with the next download
+      await sleep(400);
+      const r = await send({ type: "poll", tok });
+      if (r.state === "complete") { logRow(state, form, project, "form note", r.path, "OK", reason.slice(0, 160)); return; }
+      if (r.state === "failed") throw new Error("could not save the note: " + (r.error || ""));
+    }
+    throw new Error("the note did not finish saving");
+  }
+
   async function exportLetters(state, project, form, prefix, dir, setStatus, docDir) {
     const opened = await openTab("#history_tab", "#form-history-container", [8000, 12000]);
     const cont = opened.cont;
@@ -368,7 +395,7 @@
         if (copyLabel && copySaved[copyLabel] && dateTag(when) <= copySaved[copyLabel]) { skipped++; continue; } // older version of a resubmitted form
         setStatus(`${form.name}: letter ${dateTag(when)}`);
         try {
-          if (copyLabel) copySaved[copyLabel] = dateTag(when);
+          if (copyLabel) { copySaved[copyLabel] = dateTag(when); formCopySaved = true; }
           const got = copyLabel
             ? await downloadVia(btn, docDir, `${prefix} - ${copyLabel} ${dateTag(when).replace("_", " ")}`, "append", 90000, form.id)
             : await downloadVia(btn, dir, `${dateTag(when).replace("_", " ")} - ${prefix}`, "append", 90000, form.id);
@@ -774,6 +801,7 @@
       logRow(state, form, project, "form", "", "ERROR", "skipped after 3 attempts");
     } else {
       documentsEmpty = false;
+      formCopySaved = false;
       const projectDir = `${rootOf(state)}/${sanitise(label, 55)}`;
       const names = formNames(state.forms)[state.f];
       const docDir = `${projectDir}/${names.folder}`;
@@ -786,6 +814,10 @@
           await sleep(state.opts.delayMs);
           setStatus(`${summary(state)}\n${label.slice(0, 60)}\n${form.name}: history`);
           ok = (await exportLetters(state, project, form, names.display, letterDir, (t) => setStatus(`${summary(state)}\n${t}`), docDir)) && ok;
+          if (documentsEmpty && !formCopySaved && !state.opts.scanOnly && !misplacedNote && (await isStillRunning())) {
+            try { await writeFormNote(state, project, form, docDir); }
+            catch (e) { logRow(state, form, project, "form note", "", "ERROR", String(e.message || e)); }
+          }
         }
       } catch (e) {
         ok = false;
