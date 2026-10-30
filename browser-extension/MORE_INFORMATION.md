@@ -101,8 +101,8 @@ Open it in Excel or Numbers and look at the `status` column.
 | `INFO` | A note only, such as "3 other attachments not downloaded". |
 | `CHECK` | A letter has the same name and size as another letter of the same form, so it may be a duplicate. Nothing is deleted automatically. |
 | `WARNING` | The Documents table showed a different number of files from what was expected. Check that form. |
-| `EMPTY` | The tab had no table. The detail shows what the tab said instead. A message such as "No documents…" means the form really has none. "Tab stayed blank" means it did not load: that form is marked `NEEDS_REVIEW` and retried when you run the export again. |
-| `ERROR`, `NEEDS_REVIEW`, `MISPLACED` | Something failed. That form is retried when you run the export again. |
+| `EMPTY` | The tab had no table. The detail shows what the tab said instead. A message such as "No documents…" means the form really has none. "Tab stayed blank" means it did not load: that form is marked `NEEDS_REVIEW` and nothing is saved for it. |
+| `ERROR`, `NEEDS_REVIEW`, `MISPLACED` | Something failed, and the form is not finished. A new run starts again from the beginning for the projects you tick, so tick only the projects that contain these forms. |
 
 The `documents` rows also say how LEO served each file, for example `served as GET /...`. Include a few of these rows when asking for help.
 
@@ -114,6 +114,7 @@ The `documents` rows also say how LEO served each file, for example `served as G
 | A Save window appears during the run | Switch the same setting off, then press **Pause** and **Resume**. |
 | "A file was not saved where the exporter asked…" | The browser saved a file somewhere other than planned, so the export paused. This usually means the browser is overriding the save location, for example because it asks where to save each file. Fix the setting, move or delete the misplaced files, then press **Resume**. |
 | "leo.lshtm.ac.uk wants to download multiple files" | Click **Allow**. |
+| A PDF opens in a tab, in Acrobat or in another PDF program while the export runs | Close it, then follow the PDF settings in step 4 of the README. A window on top of LEO can slow the page. If the log shows "tab stayed blank", run those projects again. |
 | "Paused: this is not a project page (session expired?)" | Log in to LEO again, open All Projects, and click **Resume**. |
 | "An export is running in another browser tab" | Go back to the tab where you started the export. Only one export can run at a time. |
 | Nothing happens when you click the toolbar icon | Check that **LEO Project Exporter** is switched on at the extensions page. |
@@ -137,6 +138,7 @@ Other buttons on the panel: **Save log** saves the log so far, and **Start over*
 ## Why the settings are needed
 
 - **Ask where to save each file.** When this is on, the browser opens a Save window for every download, and no extension can override that. Before it starts, the exporter saves a tiny test file to check. If the browser does not settle on a file name, the exporter stops and says so. Some work computers lock the setting on. If you cannot switch it off, ask IT.
+- **PDFs opening on screen.** The approval letters are PDFs. If the browser opens them in its viewer, or the computer opens them in Acrobat or another program, a window can end up on top of LEO. Browsers slow the timers of a page that is hidden or covered, and a slow page can fail to load a tab in time. The extension cannot see or stop another program opening a file, so the settings in step 4 of the README are the fix.
 - **Multiple downloads.** An export makes many downloads from one site, and the browser may ask you to approve that. Adding `leo.lshtm.ac.uk` to the Allow list approves it in advance.
 - **Staying awake.** The export runs in the browser tab, so it stops if the computer sleeps.
 

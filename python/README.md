@@ -234,6 +234,17 @@ python3 leo_export.py --redate --apply    # rename the files
 
 Run it from the folder that holds the export, or add `--out FOLDER`. It is safe to run twice. Letters downloaded by this version already have the right date.
 
+### Compare two exports
+
+`compare_exports.py` (in this folder, standard library only) compares two export folders, for example the Python tool's output and the browser extension's output for the same projects:
+
+```
+python3 compare_exports.py ~/Downloads/LEO_export_fresh ~/Downloads/LEO_export_ext
+python3 compare_exports.py FOLDER_A FOLDER_B --project 26825 --project 26731
+```
+
+The two tools shorten long project and form names differently (the extension is shorter, to keep paths inside the Windows limit), so by default files are matched by project ID, form number and kind of file, not by name: a zip by project and form number; a letter by project, date stamp and the attachment's own file name; a submitted copy by project, form number, date stamp and attachment name; a note by project, form number and note name. Add `--strict` to require identical paths. Each file is reported as `same`, `differs`, `only in A` or `only in B`, and the report lists the path in each folder. Zips are compared by what is inside them (names, sizes and checksums), not by their bytes, because LEO builds a new zip on every request. The two text notes are compared without their "Checked:" line. Zero-byte files and zips that cannot be opened are listed as problems. `--ignore-dates` ignores the date stamp at the start of letter names, for comparing an export made before the date fix. The full report is written to `compare_report.csv`, and the exit code is 0 only when nothing differs.
+
 ---
 
 ## Options

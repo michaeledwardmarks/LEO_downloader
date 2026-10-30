@@ -13,7 +13,7 @@ You log in to LEO yourself, as normal. The tools never see or store your passwor
 
 ## Choose a tool
 
-There are two tools. They do the same job and save files in the same folder structure. **Pick one.**
+There are two tools. They do the same job and save files in the same folder structure. The extension shortens long project and form names more, to keep paths inside the Windows limit, so the same folder can have a slightly different name. **Pick one.**
 
 ### A. Python tool
 
@@ -21,6 +21,7 @@ For people who are comfortable using a terminal.
 
 - **Download:** [`leo_export.py`](python/leo_export.py)
 - **How to use it:** [`python/README.md`](python/README.md)
+- **Comparing two exports:** [`compare_exports.py`](python/compare_exports.py) checks one tool's output against the other's.
 
 ### B. Browser extension
 
@@ -41,6 +42,3 @@ For everyone else. It works in Chrome and Edge, and needs no terminal.
 ## Problems
 
 Open an issue, and say which tool you used and whether you are on Windows or Mac. Include the message you saw. Do not attach exported documents, and check any log you attach for project titles or names first.
-
-## Made by
-Made by Michael Marks with sensible advice as always from Chrissy Roberts. Coding by Claude. Caveat Emptor. 
