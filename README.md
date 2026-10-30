@@ -42,3 +42,8 @@ For everyone else. It works in Chrome and Edge, and needs no terminal.
 ## Problems
 
 Open an issue, and say which tool you used and whether you are on Windows or Mac. Include the message you saw. Do not attach exported documents, and check any log you attach for project titles or names first.
+
+
+## Credit
+
+Designed by Michael Marks with sage advice as always from Chrissy Roberts. Code by Claude. Caveat Emptor.
